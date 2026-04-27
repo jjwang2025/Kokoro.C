@@ -13,6 +13,8 @@ struct SynthesisOptions {
     int sample_rate = 24000;
     std::string model_path = "assets/onnx/model.onnx";
     std::string tokenizer_path = "assets/tokenizer.json";
+    std::string cmudict_path;
+    std::string g2p_lexicon_path;
     std::string voice_path;
     bool input_is_phonemes = false;
 };

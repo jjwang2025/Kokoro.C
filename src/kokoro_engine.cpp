@@ -107,10 +107,22 @@ std::string NormalizeEnglishText(const std::string& text) {
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Ms\\.|MS\\.(?= [A-Z]))"), "Miss");
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Mrs\\.|MRS\\.(?= [A-Z]))"), "Mrs");
     normalized = std::regex_replace(normalized, std::regex("\\betc\\.(?! [A-Z])", std::regex::icase), "etc");
+    normalized = std::regex_replace(normalized, std::regex("[-/]+"), " ");
     normalized = std::regex_replace(normalized, std::regex("[^ -~]"), " ");
     normalized = std::regex_replace(normalized, std::regex("[\\t\\r\\n]+"), " ");
     normalized = std::regex_replace(normalized, std::regex(" +"), " ");
     return Trim(normalized);
+}
+
+bool IsPunctuationToken(const std::string& token) {
+    return token == "." || token == "," || token == "!" || token == "?" || token == ":" || token == ";";
+}
+
+std::string MapPunctuationPhone(const std::string& token) {
+    if (token == ":" || token == ";") {
+        return ",";
+    }
+    return token;
 }
 
 bool IsWordChar(char ch) {
@@ -215,8 +227,8 @@ std::string PhonemizeEnglishText(const std::string& text) {
             continue;
         }
 
-        if (part.size() == 1 && std::ispunct(static_cast<unsigned char>(part[0])) != 0 && part != "'") {
-            result += part;
+        if (IsPunctuationToken(part)) {
+            result += MapPunctuationPhone(part);
             continue;
         }
 
@@ -560,7 +572,7 @@ public:
             }
             if (!matched) {
                 std::ostringstream stream;
-                stream << "tokenizer vocab does not contain codepoint in phoneme input";
+                stream << "tokenizer vocab does not contain codepoint in phoneme input: " << codepoint;
                 throw std::runtime_error(stream.str());
             }
         }

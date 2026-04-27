@@ -13,6 +13,8 @@ int main() {
     options.sample_rate = 24000;
     options.model_path = "assets/onnx/model.onnx";
     options.tokenizer_path = "assets/tokenizer.json";
+    options.cmudict_path = "";
+    options.g2p_lexicon_path = "";
     options.input_is_phonemes = false;
 
     const std::string text =

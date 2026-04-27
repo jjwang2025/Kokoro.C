@@ -29,7 +29,7 @@ void PrintVoices() {
 }
 
 void PrintUsage() {
-    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--speed 1.0] [--phonemes] [--list-voices]\n";
+    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--phonemes] [--list-voices]\n";
 }
 
 }  // namespace
@@ -41,6 +41,8 @@ int main(int argc, char** argv) {
     std::string voice_path;
     std::string model_path = "assets/onnx/model.onnx";
     std::string tokenizer_path = "assets/tokenizer.json";
+    std::string cmudict_path;
+    std::string g2p_lexicon_path;
     float speed = 1.0f;
     bool input_is_phonemes = false;
     bool list_voices = false;
@@ -59,6 +61,10 @@ int main(int argc, char** argv) {
             model_path = argv[++i];
         } else if (arg == "--tokenizer" && i + 1 < argc) {
             tokenizer_path = argv[++i];
+        } else if (arg == "--cmudict" && i + 1 < argc) {
+            cmudict_path = argv[++i];
+        } else if (arg == "--g2p-lexicon" && i + 1 < argc) {
+            g2p_lexicon_path = argv[++i];
         } else if (arg == "--speed" && i + 1 < argc) {
             speed = std::stof(argv[++i]);
         } else if (arg == "--phonemes") {
@@ -88,6 +94,8 @@ int main(int argc, char** argv) {
     options.sample_rate = 24000;
     options.model_path = model_path;
     options.tokenizer_path = tokenizer_path;
+    options.cmudict_path = cmudict_path;
+    options.g2p_lexicon_path = g2p_lexicon_path;
     options.input_is_phonemes = input_is_phonemes;
 
     try {
