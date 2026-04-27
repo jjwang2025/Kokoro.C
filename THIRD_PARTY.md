@@ -72,6 +72,17 @@ License status used by this repository:
 
 - Upstream Kokoro-82M voice assets: Apache License 2.0 (`Apache-2.0`)
 
+### Optional Pronunciation Lexicons
+
+`Kokoro.C` can also consult local pronunciation lexicons such as:
+
+```text
+lexicons/programming_terms.lexicon
+lexicons/cmudict_cache_upper.txt
+```
+
+These files are optional text-processing assets used to improve pronunciation stability for technical terms, acronyms, and named entities.
+
 ## Redistribution And License Notes
 
 This repository's source code license does not automatically replace the upstream license terms of model or voice assets.

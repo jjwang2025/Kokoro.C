@@ -41,6 +41,10 @@ It does not depend on a Python bridge at runtime.
   Tokenizer vocabulary used for phoneme-to-id mapping
 - `assets/voices/*.bin`
   Repository-local Kokoro voice style assets
+- `lexicons/programming_terms.lexicon`
+  Optional bundled pronunciation overrides for technical terms and acronyms
+- `lexicons/cmudict_cache_upper.txt`
+  Optional bundled CMUdict cache for broader English pronunciation coverage
 - `third_party/onnxruntime/`
   Restored ONNX Runtime SDK used by the build
 
@@ -169,6 +173,12 @@ Override the model, tokenizer, or exact voice file explicitly:
 .\build\bin\Release\kokoro_cli.exe --text "Hello from Kokoro C plus plus." --model assets\onnx\model.onnx --tokenizer assets\tokenizer.json --voice-path assets\voices\af_bella.bin --output outputs\custom.wav
 ```
 
+Use a technical-term lexicon and optional CMUdict cache:
+
+```powershell
+.\build\bin\Release\kokoro_cli.exe --text "ONNX Runtime and GitHub CI help TTS projects ship faster." --g2p-lexicon lexicons\programming_terms.lexicon --cmudict lexicons\cmudict_cache_upper.txt --output outputs\tech_terms.wav
+```
+
 The examples above assume your current working directory is the `Kokoro.C` repository root.
 If you launch the executable from a different working directory, prefer absolute paths for `--model`, `--tokenizer`, `--voice-path`, and `--output`.
 
@@ -278,6 +288,8 @@ Current C++ library target name: `kokoro_core`
 - Default model is `assets/onnx/model.onnx`
 - Default tokenizer is `assets/tokenizer.json`
 - Default bundled voice is `assets/voices/af_bella.bin`
+- Default technical lexicon is `lexicons/programming_terms.lexicon` when present
+- Optional CMUdict cache is `lexicons/cmudict_cache_upper.txt` when present
 - `model_q4.onnx` may still be present in `assets/onnx/`, but it is not the default runtime model
 
 ## Model And Voice Asset Licensing

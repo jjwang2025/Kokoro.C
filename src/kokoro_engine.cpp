@@ -209,45 +209,6 @@ std::string FallbackWordToPhonemes(const std::string& word) {
     return phonemes.empty() ? "tˈɛkst" : phonemes;
 }
 
-std::string PhonemizeEnglishText(const std::string& text) {
-    const std::string normalized = NormalizeEnglishText(text);
-    const auto parts = SplitWordsKeepingPunctuation(normalized);
-    const auto& lexicon = EnglishLexicon();
-
-    std::string result;
-    for (const std::string& part : parts) {
-        if (part.empty()) {
-            continue;
-        }
-
-        if (part == " ") {
-            if (!result.empty() && result.back() != ' ') {
-                result.push_back(' ');
-            }
-            continue;
-        }
-
-        if (IsPunctuationToken(part)) {
-            result += MapPunctuationPhone(part);
-            continue;
-        }
-
-        const std::string lower = ToLowerAscii(part);
-        const auto it = lexicon.find(lower);
-        if (it != lexicon.end()) {
-            result += it->second;
-        } else {
-            result += FallbackWordToPhonemes(part);
-        }
-        result.push_back(' ');
-    }
-
-    result = std::regex_replace(result, std::regex("k ə k ˈo ʊ k ə ɹ o ʊ"), "kˈoʊkəɹoʊ");
-    result = CollapseSpacesAroundPunctuation(result);
-    result = std::regex_replace(result, std::regex("r"), "ɹ");
-    return result;
-}
-
 float ClampSpeed(float speed) {
     if (speed < 0.5f) {
         return 0.5f;
@@ -286,6 +247,215 @@ std::string ResolveVoiceFile(const SynthesisOptions& options) {
     }
 
     return "../kokoro.js/voices/" + options.voice + ".bin";
+}
+
+std::string ResolveDefaultLexiconPath(const std::string& path, const std::string& fallback) {
+    if (!path.empty()) {
+        return path;
+    }
+    return FileExists(fallback) ? fallback : std::string();
+}
+
+std::string NormalizeDictionaryKey(std::string word) {
+    const std::size_t pronunciation_suffix = word.find('(');
+    if (pronunciation_suffix != std::string::npos) {
+        word = word.substr(0, pronunciation_suffix);
+    }
+    return ToLowerAscii(Trim(word));
+}
+
+std::vector<std::string> ParseDictionaryPhones(const std::string& text) {
+    std::vector<std::string> phones;
+    std::stringstream stream(text);
+    std::string item;
+    while (stream >> item) {
+        item = Trim(item);
+        if (!item.empty() && item != "-") {
+            phones.push_back(item);
+        }
+    }
+    return phones;
+}
+
+std::vector<std::string> ParseCachedDictionaryPhones(const std::string& text) {
+    std::vector<std::string> phones;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        const std::size_t quote_begin = text.find('\'', pos);
+        if (quote_begin == std::string::npos) {
+            break;
+        }
+        const std::size_t quote_end = text.find('\'', quote_begin + 1);
+        if (quote_end == std::string::npos) {
+            break;
+        }
+
+        const std::string token = Trim(text.substr(quote_begin + 1, quote_end - quote_begin - 1));
+        if (!token.empty()) {
+            phones.push_back(token);
+        }
+        pos = quote_end + 1;
+    }
+    return phones;
+}
+
+std::string ArpaPhoneToKokoroPhoneme(std::string phone) {
+    while (!phone.empty() && std::isdigit(static_cast<unsigned char>(phone.back())) != 0) {
+        phone.pop_back();
+    }
+
+    const std::string normalized = ToLowerAscii(phone);
+    static const std::unordered_map<std::string, std::string> arpa_to_ipa = {
+        {"aa", "ɑ"}, {"ae", "æ"}, {"ah", "ʌ"}, {"ao", "ɔ"}, {"aw", "aʊ"},
+        {"ay", "aɪ"}, {"b", "b"}, {"ch", "tʃ"}, {"d", "d"}, {"dh", "ð"},
+        {"eh", "ɛ"}, {"er", "ɚ"}, {"ey", "eɪ"}, {"f", "f"}, {"g", "ɡ"},
+        {"hh", "h"}, {"ih", "ɪ"}, {"iy", "i"}, {"jh", "dʒ"}, {"k", "k"},
+        {"l", "l"}, {"m", "m"}, {"n", "n"}, {"ng", "ŋ"}, {"ow", "oʊ"},
+        {"oy", "ɔɪ"}, {"p", "p"}, {"r", "ɹ"}, {"s", "s"}, {"sh", "ʃ"},
+        {"t", "t"}, {"th", "θ"}, {"uh", "ʊ"}, {"uw", "u"}, {"v", "v"},
+        {"w", "w"}, {"y", "j"}, {"z", "z"}, {"zh", "ʒ"},
+    };
+
+    const auto it = arpa_to_ipa.find(normalized);
+    return it == arpa_to_ipa.end() ? std::string() : it->second;
+}
+
+std::string DictionaryPhonesToKokoroPhonemes(const std::vector<std::string>& phones) {
+    std::string output;
+    bool first = true;
+    for (const std::string& phone : phones) {
+        const std::string mapped = ArpaPhoneToKokoroPhoneme(phone);
+        if (mapped.empty()) {
+            continue;
+        }
+        if (!first) {
+            output.push_back(' ');
+        }
+        output += mapped;
+        first = false;
+    }
+    return output;
+}
+
+class DictionaryLexicon {
+public:
+    DictionaryLexicon() = default;
+
+    explicit DictionaryLexicon(const std::string& path) {
+        if (path.empty()) {
+            return;
+        }
+
+        std::ifstream input(path);
+        if (!input) {
+            return;
+        }
+
+        std::string line;
+        while (std::getline(input, line)) {
+            line = Trim(line);
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+
+            std::string word;
+            std::vector<std::string> phones;
+            const std::size_t cache_divider = line.find(':');
+            if (cache_divider != std::string::npos) {
+                word = NormalizeDictionaryKey(line.substr(0, cache_divider));
+                phones = ParseCachedDictionaryPhones(line.substr(cache_divider + 1));
+            } else {
+                const std::size_t tab_pos = line.find('\t');
+                const std::size_t split_pos = tab_pos != std::string::npos ? tab_pos : line.find("  ");
+                if (split_pos == std::string::npos) {
+                    const std::size_t first_space = line.find(' ');
+                    if (first_space == std::string::npos) {
+                        continue;
+                    }
+                    word = NormalizeDictionaryKey(line.substr(0, first_space));
+                    phones = ParseDictionaryPhones(line.substr(first_space + 1));
+                } else {
+                    word = NormalizeDictionaryKey(line.substr(0, split_pos));
+                    phones = ParseDictionaryPhones(line.substr(split_pos + 1));
+                }
+            }
+
+            if (!word.empty() && !phones.empty() && entries_.count(word) == 0) {
+                entries_[word] = std::move(phones);
+            }
+        }
+    }
+
+    const std::vector<std::string>* Lookup(const std::string& word) const {
+        const auto it = entries_.find(ToLowerAscii(word));
+        return it == entries_.end() ? nullptr : &it->second;
+    }
+
+private:
+    std::unordered_map<std::string, std::vector<std::string>> entries_;
+};
+
+std::string PhonemizeEnglishText(const std::string& text,
+                                 const DictionaryLexicon* g2p_lexicon = nullptr,
+                                 const DictionaryLexicon* cmudict = nullptr) {
+    const std::string normalized = NormalizeEnglishText(text);
+    const auto parts = SplitWordsKeepingPunctuation(normalized);
+    const auto& lexicon = EnglishLexicon();
+
+    std::string result;
+    for (const std::string& part : parts) {
+        if (part.empty()) {
+            continue;
+        }
+
+        if (part == " ") {
+            if (!result.empty() && result.back() != ' ') {
+                result.push_back(' ');
+            }
+            continue;
+        }
+
+        if (IsPunctuationToken(part)) {
+            result += MapPunctuationPhone(part);
+            continue;
+        }
+
+        if (g2p_lexicon != nullptr) {
+            if (const auto* entry = g2p_lexicon->Lookup(part)) {
+                const std::string mapped = DictionaryPhonesToKokoroPhonemes(*entry);
+                if (!mapped.empty()) {
+                    result += mapped;
+                    result.push_back(' ');
+                    continue;
+                }
+            }
+        }
+
+        if (cmudict != nullptr) {
+            if (const auto* entry = cmudict->Lookup(part)) {
+                const std::string mapped = DictionaryPhonesToKokoroPhonemes(*entry);
+                if (!mapped.empty()) {
+                    result += mapped;
+                    result.push_back(' ');
+                    continue;
+                }
+            }
+        }
+
+        const std::string lower = ToLowerAscii(part);
+        const auto it = lexicon.find(lower);
+        if (it != lexicon.end()) {
+            result += it->second;
+        } else {
+            result += FallbackWordToPhonemes(part);
+        }
+        result.push_back(' ');
+    }
+
+    result = std::regex_replace(result, std::regex("k ə k ˈo ʊ k ə ɹ o ʊ"), "kˈoʊkəɹoʊ");
+    result = CollapseSpacesAroundPunctuation(result);
+    result = std::regex_replace(result, std::regex("r"), "ɹ");
+    return result;
 }
 
 std::string DecodeJsonString(const std::string& escaped) {
@@ -519,9 +689,13 @@ public:
         }
 
         const std::string resolved_voice_path = ResolveVoiceFile(options);
+        const std::string resolved_cmudict_path = ResolveDefaultLexiconPath(options.cmudict_path, "lexicons/cmudict_cache_upper.txt");
+        const std::string resolved_g2p_lexicon_path = ResolveDefaultLexiconPath(options.g2p_lexicon_path, "lexicons/programming_terms.lexicon");
         if (loaded_model_path == options.model_path &&
             loaded_tokenizer_path == options.tokenizer_path &&
             loaded_voice_path == resolved_voice_path &&
+            loaded_cmudict_path == resolved_cmudict_path &&
+            loaded_g2p_lexicon_path == resolved_g2p_lexicon_path &&
             session != nullptr) {
             return;
         }
@@ -538,6 +712,8 @@ public:
 
         tokenizer_vocab = ParseVocab(ReadFile(options.tokenizer_path));
         voice_data = ReadVoiceFile(resolved_voice_path);
+        cmudict = DictionaryLexicon(resolved_cmudict_path);
+        g2p_lexicon = DictionaryLexicon(resolved_g2p_lexicon_path);
 
         const std::size_t required_style_frames = 510 * kStyleDim;
         if (voice_data.size() < required_style_frames) {
@@ -553,6 +729,8 @@ public:
         loaded_model_path = options.model_path;
         loaded_tokenizer_path = options.tokenizer_path;
         loaded_voice_path = resolved_voice_path;
+        loaded_cmudict_path = resolved_cmudict_path;
+        loaded_g2p_lexicon_path = resolved_g2p_lexicon_path;
     }
 
     std::vector<std::int64_t> TokenizePhonemes(const std::string& phonemes) const {
@@ -599,7 +777,7 @@ public:
     AudioBuffer Run(const std::string& text, const SynthesisOptions& options) {
         EnsureLoaded(options);
 
-        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text);
+        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict);
         std::vector<std::int64_t> input_ids = TokenizePhonemes(phonemes);
         std::vector<float> style = SelectStyle(input_ids);
         float speed = ClampSpeed(options.speed);
@@ -640,9 +818,13 @@ private:
     std::unique_ptr<Ort::Session> session;
     std::vector<std::pair<std::string, std::int64_t>> tokenizer_vocab;
     std::vector<float> voice_data;
+    DictionaryLexicon cmudict;
+    DictionaryLexicon g2p_lexicon;
     std::string loaded_model_path;
     std::string loaded_tokenizer_path;
     std::string loaded_voice_path;
+    std::string loaded_cmudict_path;
+    std::string loaded_g2p_lexicon_path;
 };
 
 Engine::Engine()
