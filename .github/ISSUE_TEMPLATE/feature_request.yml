@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement to the runtime, tooling, or docs
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What limitation or friction are you seeing today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the behavior or workflow you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Impacted area
+      description: Runtime, build, packaging, docs, voices, or release process.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Add examples, constraints, or alternatives considered.

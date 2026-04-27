@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a runtime, build, or packaging bug
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include commands, input text, voice selection, and file paths when relevant.
+      placeholder: |
+        1. Run ...
+        2. Build with ...
+        3. Execute ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, compiler, CMake version, Python version
+      placeholder: Windows 11, VS2022, CMake 3.29, Python 3.11
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or errors
+      render: text
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Build
+        - CLI
+        - Runtime synthesis
+        - Asset restore
+        - Packaging
+        - Documentation
+    validations:
+      required: true

@@ -1,0 +1,22 @@
+Kokoro.C includes and references third-party components and assets.
+
+Attribution summary:
+
+1. Kokoro-82M model and official Kokoro codebase
+   License: Apache License 2.0
+   Usage in this repository:
+   - Kokoro ONNX model restored locally through `make model`
+   - tokenizer vocabulary restored locally through `make model`
+   - bundled Kokoro voice style `.bin` assets under `assets/voices/`
+
+2. ONNX Runtime
+   License: MIT License
+   Usage in this repository:
+   - repository-local SDK under `third_party/onnxruntime/`
+   - runtime DLLs copied into the build output directory during CMake builds
+
+Additional notes:
+
+- See `LICENSE` for this repository's own source code license.
+- See `THIRD_PARTY.md` for repository-local dependency and asset notes.
+- Large model binaries are intentionally restored locally rather than committed to Git.

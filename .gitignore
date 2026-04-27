@@ -1,0 +1,13 @@
+build*/
+dist/
+*.zip
+outputs/
+assets/.cache/
+assets/onnx/model.onnx
+assets/onnx/model_q4.onnx
+assets/onnx/model_uint8.onnx
+assets/onnx/*.tmp
+third_party/onnxruntime/
+third_party/onnxruntime.zip
+third_party/onnxruntime.nupkg
+kokoro_cpp_demo.wav

@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install release dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install huggingface_hub
+
+      - name: Restore runtime and model assets
+        run: .\scripts\restore-assets.ps1
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DONNXRUNTIME_ROOT="$PWD\third_party\onnxruntime"
+
+      - name: Build release binaries
+        run: cmake --build build --config Release
+
+      - name: Package release bundle
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
+          .\scripts\package-release.ps1 -Version $version
