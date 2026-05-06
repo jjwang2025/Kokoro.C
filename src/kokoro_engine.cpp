@@ -245,10 +245,6 @@ std::string ExpandSimpleYears(const std::string& text) {
 std::string ExpandSimpleNumericForms(const std::string& text) {
     std::string expanded = text;
 
-    static const std::vector<std::string> money_units = {
-        "million", "billion", "trillion",
-    };
-
     for (int left = 0; left <= 99; ++left) {
         for (int right = 0; right <= 99; ++right) {
             const std::string slash_pattern = std::to_string(left) + "/" + std::to_string(right);
@@ -260,10 +256,6 @@ std::string ExpandSimpleNumericForms(const std::string& text) {
     for (int value = 0; value <= 99; ++value) {
         const std::string word = SmallNumberToWords(value);
 
-        for (const std::string& unit : money_units) {
-            ReplaceAll(expanded, "$" + std::to_string(value) + " " + unit, word + " " + unit + " dollars");
-        }
-
         for (int fraction = 0; fraction <= 9; ++fraction) {
             const std::string decimal_pattern = std::to_string(value) + "." + std::to_string(fraction);
             const std::string decimal_replacement = word + " point " + SmallNumberToWords(fraction);
@@ -272,9 +264,6 @@ std::string ExpandSimpleNumericForms(const std::string& text) {
 
         const std::string percent_pattern = std::to_string(value) + "%";
         ReplaceAll(expanded, percent_pattern, word + " percent");
-
-        const std::string dollar_pattern = "$" + std::to_string(value);
-        ReplaceAll(expanded, dollar_pattern, word + (value == 1 ? " dollar" : " dollars"));
     }
 
     return expanded;
