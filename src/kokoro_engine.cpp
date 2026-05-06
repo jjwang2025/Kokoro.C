@@ -237,6 +237,17 @@ std::string ExpandSimpleNewsDates(const std::string& text) {
                 continue;
             }
 
+            for (int end_day = 1; end_day <= 31; ++end_day) {
+                const auto end_ordinal_it = ordinals.find(end_day);
+                if (end_ordinal_it == ordinals.end()) {
+                    continue;
+                }
+
+                const std::string range_pattern = month + " " + std::to_string(day) + " to " + std::to_string(end_day);
+                const std::string range_replacement = month + " " + ordinal_it->second + " to " + end_ordinal_it->second;
+                ReplaceAll(expanded, range_pattern, range_replacement);
+            }
+
             const std::string numeric_pattern = month + " " + std::to_string(day) + ",";
             const std::string numeric_replacement = month + " " + ordinal_it->second + ",";
 
