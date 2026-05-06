@@ -173,6 +173,74 @@ std::string IntegerNumberToWords(int value) {
     return std::to_string(value);
 }
 
+bool ParseOrdinalToken(const std::string& text, int* value) {
+    if (text.size() < 3) {
+        return false;
+    }
+
+    const std::string lower = ToLowerAscii(text);
+    std::string suffix;
+    if (lower.size() >= 2) {
+        suffix = lower.substr(lower.size() - 2);
+    }
+    if (suffix != "st" && suffix != "nd" && suffix != "rd" && suffix != "th") {
+        return false;
+    }
+
+    const std::string digits = lower.substr(0, lower.size() - 2);
+    if (!IsAsciiDigitsOnly(digits)) {
+        return false;
+    }
+
+    *value = std::stoi(digits);
+    return true;
+}
+
+std::string IntegerOrdinalToWords(int value) {
+    static const std::unordered_map<int, std::string> ordinals = {
+        {1, "first"}, {2, "second"}, {3, "third"}, {4, "fourth"}, {5, "fifth"},
+        {6, "sixth"}, {7, "seventh"}, {8, "eighth"}, {9, "ninth"}, {10, "tenth"},
+        {11, "eleventh"}, {12, "twelfth"}, {13, "thirteenth"}, {14, "fourteenth"}, {15, "fifteenth"},
+        {16, "sixteenth"}, {17, "seventeenth"}, {18, "eighteenth"}, {19, "nineteenth"}, {20, "twentieth"},
+        {30, "thirtieth"}, {40, "fortieth"}, {50, "fiftieth"}, {60, "sixtieth"}, {70, "seventieth"},
+        {80, "eightieth"}, {90, "ninetieth"}, {100, "hundredth"}, {1000, "thousandth"},
+    };
+
+    if (const auto it = ordinals.find(value); it != ordinals.end()) {
+        return it->second;
+    }
+
+    if (value < 100) {
+        const int tens = (value / 10) * 10;
+        const int ones = value % 10;
+        const auto tens_it = ordinals.find(tens);
+        const auto ones_it = ordinals.find(ones);
+        if (tens_it != ordinals.end() && ones_it != ordinals.end()) {
+            return tens_it->second.substr(0, tens_it->second.size() - 2) + " " + ones_it->second;
+        }
+    }
+
+    if (value < 1000) {
+        const int hundreds = value / 100;
+        const int rest = value % 100;
+        if (rest == 0) {
+            return SmallNumberToWords(hundreds) + " hundredth";
+        }
+        return SmallNumberToWords(hundreds) + " hundred " + IntegerOrdinalToWords(rest);
+    }
+
+    if (value < 1000000) {
+        const int thousands = value / 1000;
+        const int rest = value % 1000;
+        if (rest == 0) {
+            return IntegerNumberToWords(thousands) + " thousandth";
+        }
+        return IntegerNumberToWords(thousands) + " thousand " + IntegerOrdinalToWords(rest);
+    }
+
+    return IntegerNumberToWords(value);
+}
+
 bool IsLargeMoneyUnit(const std::string& text) {
     const std::string lower = ToLowerAscii(text);
     return lower == "million" || lower == "billion" || lower == "trillion";
@@ -1015,6 +1083,19 @@ std::string PhonemizeEnglishText(const std::string& text,
             const std::string spoken_number = IntegerNumberToWords(numeric_value);
             if (!spoken_number.empty() && spoken_number != lower) {
                 const std::string expanded_phonemes = PhonemizeEnglishText(spoken_number, g2p_lexicon, cmudict);
+                if (!expanded_phonemes.empty()) {
+                    result += expanded_phonemes;
+                    result.push_back(' ');
+                    continue;
+                }
+            }
+        }
+
+        int ordinal_value = 0;
+        if (ParseOrdinalToken(lower, &ordinal_value)) {
+            const std::string spoken_ordinal = IntegerOrdinalToWords(ordinal_value);
+            if (!spoken_ordinal.empty()) {
+                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_ordinal, g2p_lexicon, cmudict);
                 if (!expanded_phonemes.empty()) {
                     result += expanded_phonemes;
                     result.push_back(' ');
