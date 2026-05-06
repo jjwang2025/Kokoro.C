@@ -136,6 +136,65 @@ std::string SmallNumberToWords(int value) {
     return tens_words[value / 10] + " " + below_twenty[value % 10];
 }
 
+bool IsAsciiDigitsOnly(const std::string& text) {
+    if (text.empty()) {
+        return false;
+    }
+    for (char ch : text) {
+        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string IntegerNumberToWords(int value) {
+    if (value < 100) {
+        return SmallNumberToWords(value);
+    }
+    if (value < 1000) {
+        const int hundreds = value / 100;
+        const int rest = value % 100;
+        std::string result = SmallNumberToWords(hundreds) + " hundred";
+        if (rest != 0) {
+            result += " " + SmallNumberToWords(rest);
+        }
+        return result;
+    }
+    if (value < 1000000) {
+        const int thousands = value / 1000;
+        const int rest = value % 1000;
+        std::string result = IntegerNumberToWords(thousands) + " thousand";
+        if (rest != 0) {
+            result += " " + IntegerNumberToWords(rest);
+        }
+        return result;
+    }
+    return std::to_string(value);
+}
+
+bool IsLargeMoneyUnit(const std::string& text) {
+    const std::string lower = ToLowerAscii(text);
+    return lower == "million" || lower == "billion" || lower == "trillion";
+}
+
+std::string RemoveDigitGroupingCommas(const std::string& text) {
+    std::string output;
+    output.reserve(text.size());
+
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (ch == ',' && i > 0 && i + 1 < text.size() &&
+            std::isdigit(static_cast<unsigned char>(text[i - 1])) != 0 &&
+            std::isdigit(static_cast<unsigned char>(text[i + 1])) != 0) {
+            continue;
+        }
+        output.push_back(ch);
+    }
+
+    return output;
+}
+
 std::string ExpandSimpleYears(const std::string& text) {
     std::string expanded;
     expanded.reserve(text.size() + text.size() / 8);
@@ -186,6 +245,10 @@ std::string ExpandSimpleYears(const std::string& text) {
 std::string ExpandSimpleNumericForms(const std::string& text) {
     std::string expanded = text;
 
+    static const std::vector<std::string> money_units = {
+        "million", "billion", "trillion",
+    };
+
     for (int left = 0; left <= 99; ++left) {
         for (int right = 0; right <= 99; ++right) {
             const std::string slash_pattern = std::to_string(left) + "/" + std::to_string(right);
@@ -196,6 +259,11 @@ std::string ExpandSimpleNumericForms(const std::string& text) {
 
     for (int value = 0; value <= 99; ++value) {
         const std::string word = SmallNumberToWords(value);
+
+        for (const std::string& unit : money_units) {
+            ReplaceAll(expanded, "$" + std::to_string(value) + " " + unit, word + " " + unit + " dollars");
+        }
+
         for (int fraction = 0; fraction <= 9; ++fraction) {
             const std::string decimal_pattern = std::to_string(value) + "." + std::to_string(fraction);
             const std::string decimal_replacement = word + " point " + SmallNumberToWords(fraction);
@@ -297,6 +365,7 @@ std::string NormalizeEnglishText(const std::string& text) {
     normalized = ExpandSimpleNumericForms(normalized);
     normalized = ExpandSimpleNewsDates(normalized);
     normalized = ExpandSimpleYears(normalized);
+    normalized = RemoveDigitGroupingCommas(normalized);
     normalized = std::regex_replace(normalized, std::regex("[-/]+"), " ");
     normalized = std::regex_replace(normalized, std::regex("[^ -~]"), " ");
     normalized = std::regex_replace(normalized, std::regex("[\\t\\r\\n]+"), " ");
@@ -316,7 +385,7 @@ std::string MapPunctuationPhone(const std::string& token) {
 }
 
 bool IsWordChar(char ch) {
-    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '\'';
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '\'';
 }
 
 bool HasMixedCase(const std::string& token) {
@@ -875,6 +944,33 @@ std::string PhonemizeEnglishText(const std::string& text,
             continue;
         }
 
+        if (part == "$" && i + 1 < parts.size()) {
+            const std::string amount_token = parts[i + 1];
+            if (IsAsciiDigitsOnly(amount_token)) {
+                std::string money_phrase = IntegerNumberToWords(std::stoi(amount_token));
+                std::size_t consumed = 1;
+
+                std::size_t next_index = i + 2;
+                while (next_index < parts.size() && parts[next_index] == " ") {
+                    ++next_index;
+                }
+
+                if (next_index < parts.size() && IsLargeMoneyUnit(parts[next_index])) {
+                    money_phrase += " " + ToLowerAscii(parts[next_index]);
+                    consumed = next_index - i;
+                }
+
+                money_phrase += " dollars";
+                const std::string expanded_phonemes = PhonemizeEnglishText(money_phrase, g2p_lexicon, cmudict);
+                if (!expanded_phonemes.empty()) {
+                    result += expanded_phonemes;
+                    result.push_back(' ');
+                    i += consumed;
+                    continue;
+                }
+            }
+        }
+
         const auto expanded_parts = ExpandTokenVariants(part);
         if (expanded_parts.size() > 1 || (expanded_parts.size() == 1 && expanded_parts.front() != part)) {
             for (const std::string& expanded : expanded_parts) {
@@ -900,6 +996,19 @@ std::string PhonemizeEnglishText(const std::string& text,
                 result += stem_phonemes + suffix;
                 result.push_back(' ');
                 continue;
+            }
+        }
+
+        if (IsAsciiDigitsOnly(lower)) {
+            const int numeric_value = std::stoi(lower);
+            const std::string spoken_number = IntegerNumberToWords(numeric_value);
+            if (!spoken_number.empty() && spoken_number != lower) {
+                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_number, g2p_lexicon, cmudict);
+                if (!expanded_phonemes.empty()) {
+                    result += expanded_phonemes;
+                    result.push_back(' ');
+                    continue;
+                }
             }
         }
 

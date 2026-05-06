@@ -1,6 +1,7 @@
 #include "../include/kokoro_cpp.hpp"
 
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -29,13 +30,14 @@ void PrintVoices() {
 }
 
 void PrintUsage() {
-    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--phonemes] [--list-voices]\n";
+    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--text-file input.txt] [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--phonemes] [--list-voices]\n";
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
     std::string text;
+    std::string text_file;
     std::string output = "outputs/kokoro_cli.wav";
     std::string voice = "af_bella";
     std::string voice_path;
@@ -51,6 +53,8 @@ int main(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--text" && i + 1 < argc) {
             text = argv[++i];
+        } else if (arg == "--text-file" && i + 1 < argc) {
+            text_file = argv[++i];
         } else if (arg == "--output" && i + 1 < argc) {
             output = argv[++i];
         } else if (arg == "--voice" && i + 1 < argc) {
@@ -80,6 +84,15 @@ int main(int argc, char** argv) {
     if (list_voices) {
         PrintVoices();
         return 0;
+    }
+
+    if (!text_file.empty()) {
+        std::ifstream input(text_file, std::ios::binary);
+        if (!input) {
+            std::cerr << "failed to read text file: " << text_file << '\n';
+            return 1;
+        }
+        text.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
     }
 
     if (text.empty()) {
