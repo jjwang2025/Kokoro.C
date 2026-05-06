@@ -41,6 +41,8 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
         {"example", "ɛɡzˈæmpəl"},
         {"for", "fɔɹ"},
         {"general", "dʒˈɛnəɹəl"},
+        {"giuliani", "ˌdʒuliˈɑni"},
+        {"goodman", "ɡˈʊdmən"},
         {"hello", "həlˈoʊ"},
         {"how", "hˌW"},
         {"i", "ˌI"},
@@ -48,9 +50,12 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
         {"is", "ˈɪz"},
         {"kokoro", "kˈoʊkəɹoʊ"},
         {"local", "lˈoʊkəl"},
+        {"monday", "mˈʌndeɪ"},
         {"on", "ˈɑːn"},
         {"reasonably", "ɹˈizənəbli"},
         {"runs", "ɹˈʌnz"},
+        {"s", "z"},
+        {"september", "sɛptˈɛmbɚ"},
         {"simple", "sˈɪmpəl"},
         {"test", "tˈɛst"},
         {"text", "tˈɛkst"},
@@ -101,6 +106,149 @@ std::string ToLowerAscii(const std::string& text) {
     return lowered;
 }
 
+void ReplaceAll(std::string& text, const std::string& from, const std::string& to) {
+    if (from.empty()) {
+        return;
+    }
+    std::size_t start = 0;
+    while ((start = text.find(from, start)) != std::string::npos) {
+        text.replace(start, from.size(), to);
+        start += to.size();
+    }
+}
+
+std::string SmallNumberToWords(int value) {
+    static const std::vector<std::string> below_twenty = {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+    };
+    static const std::vector<std::string> tens_words = {
+        "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+    };
+
+    if (value < 20) {
+        return below_twenty[value];
+    }
+    if (value % 10 == 0) {
+        return tens_words[value / 10];
+    }
+    return tens_words[value / 10] + " " + below_twenty[value % 10];
+}
+
+std::string ExpandSimpleYears(const std::string& text) {
+    std::string expanded;
+    expanded.reserve(text.size() + text.size() / 8);
+
+    for (std::size_t i = 0; i < text.size();) {
+        if (i + 4 <= text.size() &&
+            std::isdigit(static_cast<unsigned char>(text[i])) != 0 &&
+            std::isdigit(static_cast<unsigned char>(text[i + 1])) != 0 &&
+            std::isdigit(static_cast<unsigned char>(text[i + 2])) != 0 &&
+            std::isdigit(static_cast<unsigned char>(text[i + 3])) != 0 &&
+            (i == 0 || std::isalnum(static_cast<unsigned char>(text[i - 1])) == 0) &&
+            (i + 4 == text.size() || std::isalnum(static_cast<unsigned char>(text[i + 4])) == 0)) {
+            const int year = std::stoi(text.substr(i, 4));
+            std::string spoken;
+
+            if (year >= 1900 && year <= 1999) {
+                const int tail = year % 100;
+                spoken = "nineteen";
+                if (tail != 0) {
+                    spoken += " " + SmallNumberToWords(tail);
+                } else {
+                    spoken += " hundred";
+                }
+            } else if (year >= 2000 && year <= 2009) {
+                spoken = year == 2000 ? "two thousand" : "two thousand " + SmallNumberToWords(year % 100);
+            } else if (year >= 2010 && year <= 2099) {
+                const int tail = year % 100;
+                spoken = "twenty";
+                if (tail != 0) {
+                    spoken += " " + SmallNumberToWords(tail);
+                }
+            }
+
+            if (!spoken.empty()) {
+                expanded += spoken;
+                i += 4;
+                continue;
+            }
+        }
+
+        expanded.push_back(text[i]);
+        ++i;
+    }
+
+    return expanded;
+}
+
+std::string ExpandSimpleNumericForms(const std::string& text) {
+    std::string expanded = text;
+
+    for (int left = 0; left <= 99; ++left) {
+        for (int right = 0; right <= 99; ++right) {
+            const std::string slash_pattern = std::to_string(left) + "/" + std::to_string(right);
+            const std::string slash_replacement = SmallNumberToWords(left) + " " + SmallNumberToWords(right);
+            ReplaceAll(expanded, slash_pattern, slash_replacement);
+        }
+    }
+
+    for (int value = 0; value <= 99; ++value) {
+        const std::string word = SmallNumberToWords(value);
+        for (int fraction = 0; fraction <= 9; ++fraction) {
+            const std::string decimal_pattern = std::to_string(value) + "." + std::to_string(fraction);
+            const std::string decimal_replacement = word + " point " + SmallNumberToWords(fraction);
+            ReplaceAll(expanded, decimal_pattern, decimal_replacement);
+        }
+
+        const std::string percent_pattern = std::to_string(value) + "%";
+        ReplaceAll(expanded, percent_pattern, word + " percent");
+
+        const std::string dollar_pattern = "$" + std::to_string(value);
+        ReplaceAll(expanded, dollar_pattern, word + (value == 1 ? " dollar" : " dollars"));
+    }
+
+    return expanded;
+}
+
+std::string ExpandSimpleNewsDates(const std::string& text) {
+    static const std::unordered_map<int, std::string> ordinals = {
+        {1, "first"},       {2, "second"},      {3, "third"},        {4, "fourth"},
+        {5, "fifth"},       {6, "sixth"},       {7, "seventh"},      {8, "eighth"},
+        {9, "ninth"},       {10, "tenth"},      {11, "eleventh"},    {12, "twelfth"},
+        {13, "thirteenth"}, {14, "fourteenth"}, {15, "fifteenth"},   {16, "sixteenth"},
+        {17, "seventeenth"},{18, "eighteenth"}, {19, "nineteenth"},  {20, "twentieth"},
+        {21, "twenty first"},{22, "twenty second"},{23, "twenty third"},{24, "twenty fourth"},
+        {25, "twenty fifth"},{26, "twenty sixth"}, {27, "twenty seventh"},{28, "twenty eighth"},
+        {29, "twenty ninth"},{30, "thirtieth"}, {31, "thirty first"},
+    };
+
+    static const std::vector<std::string> months = {
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+    };
+
+    std::string expanded = text;
+    for (const std::string& month : months) {
+        for (int day = 1; day <= 31; ++day) {
+            const auto ordinal_it = ordinals.find(day);
+            if (ordinal_it == ordinals.end()) {
+                continue;
+            }
+
+            const std::string numeric_pattern = month + " " + std::to_string(day) + ",";
+            const std::string numeric_replacement = month + " " + ordinal_it->second + ",";
+
+            ReplaceAll(expanded, numeric_pattern, numeric_replacement);
+
+            const std::string compact_pattern = month + " " + std::to_string(day) + " ,";
+            const std::string compact_replacement = month + " " + ordinal_it->second + " ,";
+            ReplaceAll(expanded, compact_pattern, compact_replacement);
+        }
+    }
+    return expanded;
+}
+
 std::string NormalizeEnglishText(const std::string& text) {
     std::string normalized = text;
     normalized = std::regex_replace(normalized, std::regex("[‘’]"), "'");
@@ -109,7 +257,23 @@ std::string NormalizeEnglishText(const std::string& text) {
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Mr\\.|MR\\.(?= [A-Z]))"), "Mister");
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Ms\\.|MS\\.(?= [A-Z]))"), "Miss");
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Mrs\\.|MRS\\.(?= [A-Z]))"), "Mrs");
+    normalized = std::regex_replace(normalized, std::regex("\\bSept\\.", std::regex::icase), "September");
+    normalized = std::regex_replace(normalized, std::regex("\\bJan\\.", std::regex::icase), "January");
+    normalized = std::regex_replace(normalized, std::regex("\\bFeb\\.", std::regex::icase), "February");
+    normalized = std::regex_replace(normalized, std::regex("\\bMar\\.", std::regex::icase), "March");
+    normalized = std::regex_replace(normalized, std::regex("\\bApr\\.", std::regex::icase), "April");
+    normalized = std::regex_replace(normalized, std::regex("\\bJun\\.", std::regex::icase), "June");
+    normalized = std::regex_replace(normalized, std::regex("\\bJul\\.", std::regex::icase), "July");
+    normalized = std::regex_replace(normalized, std::regex("\\bAug\\.", std::regex::icase), "August");
+    normalized = std::regex_replace(normalized, std::regex("\\bOct\\.", std::regex::icase), "October");
+    normalized = std::regex_replace(normalized, std::regex("\\bNov\\.", std::regex::icase), "November");
+    normalized = std::regex_replace(normalized, std::regex("\\bDec\\.", std::regex::icase), "December");
     normalized = std::regex_replace(normalized, std::regex("\\betc\\.(?! [A-Z])", std::regex::icase), "etc");
+    normalized = std::regex_replace(normalized, std::regex("([A-Za-z])'s\\b"), "$1 's");
+    normalized = ToLowerAscii(normalized);
+    normalized = ExpandSimpleNumericForms(normalized);
+    normalized = ExpandSimpleNewsDates(normalized);
+    normalized = ExpandSimpleYears(normalized);
     normalized = std::regex_replace(normalized, std::regex("[-/]+"), " ");
     normalized = std::regex_replace(normalized, std::regex("[^ -~]"), " ");
     normalized = std::regex_replace(normalized, std::regex("[\\t\\r\\n]+"), " ");
@@ -393,7 +557,7 @@ std::string FallbackWordToPhonemes(const std::string& word) {
         phonemes += it->second;
         first = false;
     }
-    return phonemes.empty() ? "tˈɛkst" : phonemes;
+    return phonemes;
 }
 
 float ClampSpeed(float speed) {
@@ -729,8 +893,11 @@ std::string PhonemizeEnglishText(const std::string& text,
             continue;
         }
 
-        result += FallbackWordToPhonemes(part);
-        result.push_back(' ');
+        const std::string fallback = FallbackWordToPhonemes(part);
+        if (!fallback.empty()) {
+            result += fallback;
+            result.push_back(' ');
+        }
     }
 
     result = std::regex_replace(result, std::regex("k ə k ˈo ʊ k ə ɹ o ʊ"), "kˈoʊkəɹoʊ");
