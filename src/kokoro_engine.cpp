@@ -65,6 +65,7 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
         {"well", "wˈɛl"},
         {"with", "wˈɪð"},
         {"world", "wˈɜːld"},
+        {"xinhua", "ʃˈɪnhwɑ"},
         {"you", "ju"},
     };
     return lexicon;
@@ -244,6 +245,14 @@ std::string ExpandSimpleNewsDates(const std::string& text) {
             const std::string compact_pattern = month + " " + std::to_string(day) + " ,";
             const std::string compact_replacement = month + " " + ordinal_it->second + " ,";
             ReplaceAll(expanded, compact_pattern, compact_replacement);
+
+            const std::string bare_pattern = month + " " + std::to_string(day) + " ";
+            const std::string bare_replacement = month + " " + ordinal_it->second + " ";
+            ReplaceAll(expanded, bare_pattern, bare_replacement);
+
+            const std::string closing_pattern = month + " " + std::to_string(day) + ")";
+            const std::string closing_replacement = month + " " + ordinal_it->second + ")";
+            ReplaceAll(expanded, closing_pattern, closing_replacement);
         }
     }
     return expanded;
@@ -273,6 +282,7 @@ std::string NormalizeEnglishText(const std::string& text) {
     normalized = std::regex_replace(normalized, std::regex("\\bDec\\.", std::regex::icase), "December");
     normalized = std::regex_replace(normalized, std::regex("\\betc\\.(?! [A-Z])", std::regex::icase), "etc");
     normalized = ToLowerAscii(normalized);
+    normalized = std::regex_replace(normalized, std::regex("[()]"), ", ");
     normalized = ExpandSimpleNumericForms(normalized);
     normalized = ExpandSimpleNewsDates(normalized);
     normalized = ExpandSimpleYears(normalized);
@@ -371,7 +381,7 @@ std::vector<std::string> ExpandTokenVariants(const std::string& token) {
         return {};
     }
 
-    if (IsUppercaseAlphaWord(token)) {
+    if (IsUppercaseAlphaWord(token) && token.size() <= 4) {
         std::vector<std::string> parts;
         parts.reserve(token.size());
         for (char ch : token) {
@@ -391,7 +401,7 @@ std::vector<std::string> ExpandTokenVariants(const std::string& token) {
 
     std::vector<std::string> result;
     for (const std::string& part : parts) {
-        if (IsUppercaseAlphaWord(part)) {
+        if (IsUppercaseAlphaWord(part) && part.size() <= 4) {
             for (char ch : part) {
                 result.emplace_back(1, static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
             }
