@@ -253,6 +253,9 @@ std::string NormalizeEnglishText(const std::string& text) {
     std::string normalized = text;
     normalized = std::regex_replace(normalized, std::regex("[‘’]"), "'");
     normalized = std::regex_replace(normalized, std::regex("[“”]"), "\"");
+    normalized = std::regex_replace(normalized, std::regex("(^|[\\s\\[(])'(?=[A-Za-z])"), "$1, ");
+    normalized = std::regex_replace(normalized, std::regex("([A-Za-z])'([\\s\\],.!?;:])"), "$1,$2");
+    normalized = std::regex_replace(normalized, std::regex("([A-Za-z])'$"), "$1,");
     normalized = std::regex_replace(normalized, std::regex("\\b[Dd][Rr]\\.(?= [A-Z])"), "Doctor");
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Mr\\.|MR\\.(?= [A-Z]))"), "Mister");
     normalized = std::regex_replace(normalized, std::regex("\\b(?:Ms\\.|MS\\.(?= [A-Z]))"), "Miss");
@@ -269,7 +272,6 @@ std::string NormalizeEnglishText(const std::string& text) {
     normalized = std::regex_replace(normalized, std::regex("\\bNov\\.", std::regex::icase), "November");
     normalized = std::regex_replace(normalized, std::regex("\\bDec\\.", std::regex::icase), "December");
     normalized = std::regex_replace(normalized, std::regex("\\betc\\.(?! [A-Z])", std::regex::icase), "etc");
-    normalized = std::regex_replace(normalized, std::regex("([A-Za-z])'s\\b"), "$1 's");
     normalized = ToLowerAscii(normalized);
     normalized = ExpandSimpleNumericForms(normalized);
     normalized = ExpandSimpleNewsDates(normalized);
@@ -560,6 +562,27 @@ std::string FallbackWordToPhonemes(const std::string& word) {
     return phonemes;
 }
 
+std::string PossessiveSuffixForPhonemes(const std::string& phonemes) {
+    const std::string trimmed = Trim(phonemes);
+    if (trimmed.empty()) {
+        return {};
+    }
+
+    auto ends_with = [&trimmed](const std::string& suffix) {
+        return trimmed.size() >= suffix.size() && trimmed.compare(trimmed.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+
+    if (ends_with("s") || ends_with("z") || ends_with("ʃ") || ends_with("ʒ") || ends_with("tʃ") || ends_with("dʒ")) {
+        return "ɪz";
+    }
+
+    if (ends_with("p") || ends_with("t") || ends_with("k") || ends_with("f") || ends_with("θ")) {
+        return "s";
+    }
+
+    return "z";
+}
+
 float ClampSpeed(float speed) {
     if (speed < 0.5f) {
         return 0.5f;
@@ -847,6 +870,17 @@ std::string PhonemizeEnglishText(const std::string& text,
         }
 
         const std::string lower = ToLowerAscii(part);
+
+        if (lower.size() > 2 && lower.substr(lower.size() - 2) == "'s") {
+            const std::string stem = part.substr(0, part.size() - 2);
+            const std::string stem_phonemes = PhonemizeEnglishText(stem, g2p_lexicon, cmudict);
+            const std::string suffix = PossessiveSuffixForPhonemes(stem_phonemes);
+            if (!stem_phonemes.empty() && !suffix.empty()) {
+                result += stem_phonemes + suffix;
+                result.push_back(' ');
+                continue;
+            }
+        }
 
         const std::string* next_word = nullptr;
         for (std::size_t next = i + 1; next < parts.size(); ++next) {
