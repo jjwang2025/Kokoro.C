@@ -7,15 +7,22 @@
 
 namespace kokoro {
 
+enum class EmotionPreset {
+    Neutral,
+    Happy,
+};
+
 struct SynthesisOptions {
     std::string voice = "af_heart";
     float speed = 1.0f;
+    float emotion_strength = 0.5f;
     int sample_rate = 24000;
     std::string model_path = "assets/onnx/model.onnx";
     std::string tokenizer_path = "assets/tokenizer.json";
     std::string cmudict_path;
     std::string g2p_lexicon_path;
     std::string voice_path;
+    EmotionPreset emotion = EmotionPreset::Neutral;
     bool input_is_phonemes = false;
 };
 

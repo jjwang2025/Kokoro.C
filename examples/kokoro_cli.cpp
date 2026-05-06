@@ -8,6 +8,16 @@
 
 namespace {
 
+kokoro::EmotionPreset ParseEmotion(const std::string& value) {
+    if (value == "neutral") {
+        return kokoro::EmotionPreset::Neutral;
+    }
+    if (value == "happy") {
+        return kokoro::EmotionPreset::Happy;
+    }
+    throw std::runtime_error("unsupported emotion preset: " + value);
+}
+
 const std::vector<std::string>& BuiltInVoices() {
     static const std::vector<std::string> voices = {
         "af_bella",
@@ -30,7 +40,7 @@ void PrintVoices() {
 }
 
 void PrintUsage() {
-    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--text-file input.txt] [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--phonemes] [--list-voices]\n";
+    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--text-file input.txt] [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--emotion neutral|happy] [--emotion-strength 0.0-1.0] [--phonemes] [--list-voices]\n";
 }
 
 }  // namespace
@@ -46,6 +56,8 @@ int main(int argc, char** argv) {
     std::string cmudict_path;
     std::string g2p_lexicon_path;
     float speed = 1.0f;
+    float emotion_strength = 0.5f;
+    kokoro::EmotionPreset emotion = kokoro::EmotionPreset::Neutral;
     bool input_is_phonemes = false;
     bool list_voices = false;
 
@@ -71,6 +83,10 @@ int main(int argc, char** argv) {
             g2p_lexicon_path = argv[++i];
         } else if (arg == "--speed" && i + 1 < argc) {
             speed = std::stof(argv[++i]);
+        } else if (arg == "--emotion" && i + 1 < argc) {
+            emotion = ParseEmotion(argv[++i]);
+        } else if (arg == "--emotion-strength" && i + 1 < argc) {
+            emotion_strength = std::stof(argv[++i]);
         } else if (arg == "--phonemes") {
             input_is_phonemes = true;
         } else if (arg == "--list-voices") {
@@ -104,6 +120,8 @@ int main(int argc, char** argv) {
     options.voice = voice;
     options.voice_path = voice_path;
     options.speed = speed;
+    options.emotion = emotion;
+    options.emotion_strength = emotion_strength;
     options.sample_rate = 24000;
     options.model_path = model_path;
     options.tokenizer_path = tokenizer_path;

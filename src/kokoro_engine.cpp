@@ -762,6 +762,33 @@ float ClampSpeed(float speed) {
     return speed;
 }
 
+float ClampEmotionStrength(float strength) {
+    if (strength < 0.0f) {
+        return 0.0f;
+    }
+    if (strength > 1.0f) {
+        return 1.0f;
+    }
+    return strength;
+}
+
+float ApplyEmotionSpeed(float speed, EmotionPreset emotion, float emotion_strength) {
+    if (emotion == EmotionPreset::Happy) {
+        return ClampSpeed(speed * (1.0f + 0.12f * ClampEmotionStrength(emotion_strength)));
+    }
+    return ClampSpeed(speed);
+}
+
+std::string ApplyEmotionPunctuation(const std::string& token, EmotionPreset emotion, float emotion_strength) {
+    if (emotion != EmotionPreset::Happy || ClampEmotionStrength(emotion_strength) <= 0.0f) {
+        return token;
+    }
+    if (token == ";" || token == ":") {
+        return ",";
+    }
+    return token;
+}
+
 float NormalizeAmplitude(float value) {
     if (value < -1.0f) {
         return -1.0f;
@@ -999,7 +1026,9 @@ private:
 
 std::string PhonemizeEnglishText(const std::string& text,
                                  const DictionaryLexicon* g2p_lexicon = nullptr,
-                                 const DictionaryLexicon* cmudict = nullptr) {
+                                 const DictionaryLexicon* cmudict = nullptr,
+                                 EmotionPreset emotion = EmotionPreset::Neutral,
+                                 float emotion_strength = 0.0f) {
     const std::string normalized = NormalizeEnglishText(text);
     const auto parts = SplitWordsKeepingPunctuation(normalized);
     const auto& lexicon = EnglishLexicon();
@@ -1019,7 +1048,7 @@ std::string PhonemizeEnglishText(const std::string& text,
         }
 
         if (IsPunctuationToken(part)) {
-            result += MapPunctuationPhone(part);
+            result += ApplyEmotionPunctuation(MapPunctuationPhone(part), emotion, emotion_strength);
             continue;
         }
 
@@ -1040,7 +1069,7 @@ std::string PhonemizeEnglishText(const std::string& text,
                 }
 
                 money_phrase += " dollars";
-                const std::string expanded_phonemes = PhonemizeEnglishText(money_phrase, g2p_lexicon, cmudict);
+                const std::string expanded_phonemes = PhonemizeEnglishText(money_phrase, g2p_lexicon, cmudict, emotion, emotion_strength);
                 if (!expanded_phonemes.empty()) {
                     result += expanded_phonemes;
                     result.push_back(' ');
@@ -1053,7 +1082,7 @@ std::string PhonemizeEnglishText(const std::string& text,
         const auto expanded_parts = ExpandTokenVariants(part);
         if (expanded_parts.size() > 1 || (expanded_parts.size() == 1 && expanded_parts.front() != part)) {
             for (const std::string& expanded : expanded_parts) {
-                std::string expanded_phonemes = PhonemizeEnglishText(expanded, g2p_lexicon, cmudict);
+                std::string expanded_phonemes = PhonemizeEnglishText(expanded, g2p_lexicon, cmudict, emotion, emotion_strength);
                 if (!expanded_phonemes.empty()) {
                     if (!result.empty() && result.back() != ' ') {
                         result.push_back(' ');
@@ -1069,7 +1098,7 @@ std::string PhonemizeEnglishText(const std::string& text,
 
         if (lower.size() > 2 && lower.substr(lower.size() - 2) == "'s") {
             const std::string stem = part.substr(0, part.size() - 2);
-            const std::string stem_phonemes = PhonemizeEnglishText(stem, g2p_lexicon, cmudict);
+            const std::string stem_phonemes = PhonemizeEnglishText(stem, g2p_lexicon, cmudict, emotion, emotion_strength);
             const std::string suffix = PossessiveSuffixForPhonemes(stem_phonemes);
             if (!stem_phonemes.empty() && !suffix.empty()) {
                 result += stem_phonemes + suffix;
@@ -1082,7 +1111,7 @@ std::string PhonemizeEnglishText(const std::string& text,
             const int numeric_value = std::stoi(lower);
             const std::string spoken_number = IntegerNumberToWords(numeric_value);
             if (!spoken_number.empty() && spoken_number != lower) {
-                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_number, g2p_lexicon, cmudict);
+                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_number, g2p_lexicon, cmudict, emotion, emotion_strength);
                 if (!expanded_phonemes.empty()) {
                     result += expanded_phonemes;
                     result.push_back(' ');
@@ -1095,7 +1124,7 @@ std::string PhonemizeEnglishText(const std::string& text,
         if (ParseOrdinalToken(lower, &ordinal_value)) {
             const std::string spoken_ordinal = IntegerOrdinalToWords(ordinal_value);
             if (!spoken_ordinal.empty()) {
-                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_ordinal, g2p_lexicon, cmudict);
+                const std::string expanded_phonemes = PhonemizeEnglishText(spoken_ordinal, g2p_lexicon, cmudict, emotion, emotion_strength);
                 if (!expanded_phonemes.empty()) {
                     result += expanded_phonemes;
                     result.push_back(' ');
@@ -1474,9 +1503,15 @@ public:
         return input_ids;
     }
 
-    std::vector<float> SelectStyle(const std::vector<std::int64_t>& input_ids) const {
+    std::vector<float> SelectStyle(const std::vector<std::int64_t>& input_ids,
+                                   EmotionPreset emotion,
+                                   float emotion_strength) const {
         const std::size_t phoneme_count = input_ids.size() >= 2 ? (input_ids.size() - 2) : 0;
-        const std::size_t style_index = std::min<std::size_t>(phoneme_count, 509);
+        std::size_t style_index = std::min<std::size_t>(phoneme_count, 509);
+        if (emotion == EmotionPreset::Happy) {
+            const std::size_t offset = static_cast<std::size_t>(std::round(4.0f * ClampEmotionStrength(emotion_strength)));
+            style_index = std::min<std::size_t>(style_index + offset, 509);
+        }
         const std::size_t offset = style_index * kStyleDim;
 
         if (offset + kStyleDim > voice_data.size()) {
@@ -1488,8 +1523,8 @@ public:
 
     AudioBuffer RunPhonemes(const std::string& phonemes, const SynthesisOptions& options) {
         std::vector<std::int64_t> input_ids = TokenizePhonemes(phonemes);
-        std::vector<float> style = SelectStyle(input_ids);
-        float speed = ClampSpeed(options.speed);
+        std::vector<float> style = SelectStyle(input_ids, options.emotion, options.emotion_strength);
+        float speed = ApplyEmotionSpeed(options.speed, options.emotion, options.emotion_strength);
 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
@@ -1525,7 +1560,7 @@ public:
     AudioBuffer Run(const std::string& text, const SynthesisOptions& options) {
         EnsureLoaded(options);
 
-        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict);
+        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict, options.emotion, options.emotion_strength);
         AudioBuffer audio;
         audio.sample_rate = kSampleRate;
 
