@@ -29,6 +29,7 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
         {"am", "ɐm"},
         {"and", "ænd"},
         {"are", "ɑɹ"},
+        {"artificial", "ˌɑɹtɪfˈɪʃəl"},
         {"ask", "ˈæsk"},
         {"asking", "ˈæskɪŋ"},
         {"bella", "bˈɛlə"},
@@ -39,9 +40,11 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
         {"english", "ˈɪŋɡlɪʃ"},
         {"example", "ɛɡzˈæmpəl"},
         {"for", "fɔɹ"},
+        {"general", "dʒˈɛnəɹəl"},
         {"hello", "həlˈoʊ"},
         {"how", "hˌW"},
         {"i", "ˌI"},
+        {"intelligence", "ɪntˈɛlɪdʒəns"},
         {"is", "ˈɪz"},
         {"kokoro", "kˈoʊkəɹoʊ"},
         {"local", "lˈoʊkəl"},
@@ -129,6 +132,176 @@ bool IsWordChar(char ch) {
     return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '\'';
 }
 
+bool HasMixedCase(const std::string& token) {
+    bool has_upper = false;
+    bool has_lower = false;
+    for (char ch : token) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isupper(uch) != 0) {
+            has_upper = true;
+        } else if (std::islower(uch) != 0) {
+            has_lower = true;
+        }
+    }
+    return has_upper && has_lower;
+}
+
+bool IsUppercaseAlphaWord(const std::string& token) {
+    if (token.size() < 2) {
+        return false;
+    }
+    for (char ch : token) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isalpha(uch) == 0 || std::isupper(uch) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<std::string> SplitMixedCaseToken(const std::string& token) {
+    std::vector<std::string> parts;
+    std::string current;
+
+    auto is_upper = [](char ch) {
+        return std::isupper(static_cast<unsigned char>(ch)) != 0;
+    };
+    auto is_lower = [](char ch) {
+        return std::islower(static_cast<unsigned char>(ch)) != 0;
+    };
+    auto is_alpha = [](char ch) {
+        return std::isalpha(static_cast<unsigned char>(ch)) != 0;
+    };
+
+    for (std::size_t i = 0; i < token.size(); ++i) {
+        const char current_char = token[i];
+        if (i > 0) {
+            const char previous = token[i - 1];
+            const char next = (i + 1 < token.size()) ? token[i + 1] : '\0';
+
+            const bool lower_to_upper = is_lower(previous) && is_upper(current_char);
+            const bool acronym_to_word = is_upper(previous) && is_upper(current_char) && next != '\0' && is_lower(next);
+            const bool digit_to_alpha = std::isdigit(static_cast<unsigned char>(previous)) != 0 && is_alpha(current_char);
+            const bool alpha_to_digit = is_alpha(previous) && std::isdigit(static_cast<unsigned char>(current_char)) != 0;
+
+            if (lower_to_upper || acronym_to_word || digit_to_alpha || alpha_to_digit) {
+                if (!current.empty()) {
+                    parts.push_back(current);
+                    current.clear();
+                }
+            }
+        }
+        current.push_back(current_char);
+    }
+
+    if (!current.empty()) {
+        parts.push_back(current);
+    }
+    return parts;
+}
+
+std::vector<std::string> ExpandTokenVariants(const std::string& token) {
+    if (token.empty()) {
+        return {};
+    }
+
+    if (IsUppercaseAlphaWord(token)) {
+        std::vector<std::string> parts;
+        parts.reserve(token.size());
+        for (char ch : token) {
+            parts.emplace_back(1, static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        }
+        return parts;
+    }
+
+    if (!HasMixedCase(token)) {
+        return {token};
+    }
+
+    const auto parts = SplitMixedCaseToken(token);
+    if (parts.size() < 2) {
+        return {token};
+    }
+
+    std::vector<std::string> result;
+    for (const std::string& part : parts) {
+        if (IsUppercaseAlphaWord(part)) {
+            for (char ch : part) {
+                result.emplace_back(1, static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+            }
+        } else {
+            result.push_back(part);
+        }
+    }
+    return result;
+}
+
+bool StartsWithVowelLikeSound(const std::string& token) {
+    if (token.empty()) {
+        return false;
+    }
+
+    const std::string lower = ToLowerAscii(token);
+    static const std::unordered_map<std::string, bool> special_cases = {
+        {"honest", true},   {"honor", true},     {"hour", true},        {"heir", true},
+        {"mba", true},      {"xml", true},       {"fbi", true},         {"api", true},
+        {"one", false},     {"once", false},     {"user", false},       {"university", false},
+        {"european", false}, {"unicorn", false}, {"ubiquitous", false}, {"url", false},
+    };
+
+    if (const auto it = special_cases.find(lower); it != special_cases.end()) {
+        return it->second;
+    }
+
+    const char ch = lower.front();
+    return ch == 'a' || ch == 'e' || ch == 'i' || ch == 'o' || ch == 'u';
+}
+
+std::string WeakFormForToken(const std::string& lower, const std::string* next_word) {
+    const bool next_is_vowel_like = next_word != nullptr && StartsWithVowelLikeSound(*next_word);
+
+    if (lower == "the") {
+        return next_is_vowel_like ? "ði" : "ðə";
+    }
+    if (lower == "a") {
+        return next_is_vowel_like ? "eɪ" : "ə";
+    }
+    if (lower == "an") {
+        return "ən";
+    }
+    if (lower == "to") {
+        return next_is_vowel_like ? "tu" : "tə";
+    }
+    if (lower == "of") {
+        return "əv";
+    }
+    if (lower == "and") {
+        return "ənd";
+    }
+    if (lower == "for") {
+        return "fɚ";
+    }
+    if (lower == "our") {
+        return "aʊɚ";
+    }
+    if (lower == "can") {
+        return "kən";
+    }
+    if (lower == "some") {
+        return "səm";
+    }
+    if (lower == "from") {
+        return "fɹəm";
+    }
+    if (lower == "was") {
+        return "wəz";
+    }
+    if (lower == "were") {
+        return "wɚ";
+    }
+    return {};
+}
+
 std::vector<std::string> SplitWordsKeepingPunctuation(const std::string& text) {
     std::vector<std::string> parts;
     std::string current;
@@ -166,6 +339,20 @@ std::string CollapseSpacesAroundPunctuation(const std::string& phonemes) {
 
 std::string FallbackWordToPhonemes(const std::string& word) {
     std::string lower = ToLowerAscii(word);
+
+    if (lower.size() == 1 && std::isalpha(static_cast<unsigned char>(lower.front())) != 0) {
+        static const std::unordered_map<char, std::string> letter_names = {
+            {'a', "eɪ"}, {'b', "bi"}, {'c', "si"}, {'d', "di"}, {'e', "i"}, {'f', "ɛf"},
+            {'g', "dʒi"}, {'h', "eɪtʃ"}, {'i', "aɪ"}, {'j', "dʒeɪ"}, {'k', "keɪ"}, {'l', "ɛl"},
+            {'m', "ɛm"}, {'n', "ɛn"}, {'o', "oʊ"}, {'p', "pi"}, {'q', "kju"}, {'r', "ɑɹ"},
+            {'s', "ɛs"}, {'t', "ti"}, {'u', "ju"}, {'v', "vi"}, {'w', "dʌbəlju"}, {'x', "ɛks"},
+            {'y', "waɪ"}, {'z', "zi"},
+        };
+        const auto it = letter_names.find(lower.front());
+        if (it != letter_names.end()) {
+            return it->second;
+        }
+    }
 
     if (lower == "c++") {
         return "sˈiː plˈʌs plˈʌs";
@@ -299,40 +486,99 @@ std::vector<std::string> ParseCachedDictionaryPhones(const std::string& text) {
     return phones;
 }
 
-std::string ArpaPhoneToKokoroPhoneme(std::string phone) {
-    while (!phone.empty() && std::isdigit(static_cast<unsigned char>(phone.back())) != 0) {
-        phone.pop_back();
+std::string ArpaPhoneToKokoroPhoneme(const std::string& phone) {
+    int stress = 0;
+    std::string base = phone;
+    if (!base.empty() && std::isdigit(static_cast<unsigned char>(base.back())) != 0) {
+        stress = base.back() - '0';
+        base.pop_back();
     }
 
-    const std::string normalized = ToLowerAscii(phone);
+    const std::string normalized = ToLowerAscii(base);
+
+    if (normalized == "ah") {
+        if (stress == 1) {
+            return "ˈʌ";
+        }
+        if (stress == 2) {
+            return "ˌʌ";
+        }
+        return "ə";
+    }
+
+    if (normalized == "er") {
+        if (stress == 1) {
+            return "ˈɚ";
+        }
+        if (stress == 2) {
+            return "ˌɚ";
+        }
+        return "ɚ";
+    }
+
+    if (normalized == "ih") {
+        if (stress == 0) {
+            return "ə";
+        }
+        return stress == 1 ? "ˈɪ" : "ˌɪ";
+    }
+
+    if (normalized == "uh") {
+        if (stress == 0) {
+            return "ə";
+        }
+        return stress == 1 ? "ˈʊ" : "ˌʊ";
+    }
+
+    if (normalized == "aa") {
+        return stress == 1 ? "ˈɑ" : (stress == 2 ? "ˌɑ" : "ɑ");
+    }
+
+    if (normalized == "ao") {
+        return stress == 1 ? "ˈɔ" : (stress == 2 ? "ˌɔ" : "ɔ");
+    }
+
+    if (normalized == "uw") {
+        return stress == 1 ? "ˈu" : (stress == 2 ? "ˌu" : "u");
+    }
+
+    if (normalized == "iy") {
+        return stress == 1 ? "ˈi" : (stress == 2 ? "ˌi" : "i");
+    }
+
     static const std::unordered_map<std::string, std::string> arpa_to_ipa = {
-        {"aa", "ɑ"}, {"ae", "æ"}, {"ah", "ʌ"}, {"ao", "ɔ"}, {"aw", "aʊ"},
+        {"aa", "ɑ"}, {"ae", "æ"}, {"ao", "ɔ"}, {"aw", "aʊ"},
         {"ay", "aɪ"}, {"b", "b"}, {"ch", "tʃ"}, {"d", "d"}, {"dh", "ð"},
-        {"eh", "ɛ"}, {"er", "ɚ"}, {"ey", "eɪ"}, {"f", "f"}, {"g", "ɡ"},
-        {"hh", "h"}, {"ih", "ɪ"}, {"iy", "i"}, {"jh", "dʒ"}, {"k", "k"},
+        {"eh", "ɛ"}, {"ey", "eɪ"}, {"f", "f"}, {"g", "ɡ"},
+        {"hh", "h"}, {"jh", "dʒ"}, {"k", "k"},
         {"l", "l"}, {"m", "m"}, {"n", "n"}, {"ng", "ŋ"}, {"ow", "oʊ"},
         {"oy", "ɔɪ"}, {"p", "p"}, {"r", "ɹ"}, {"s", "s"}, {"sh", "ʃ"},
-        {"t", "t"}, {"th", "θ"}, {"uh", "ʊ"}, {"uw", "u"}, {"v", "v"},
+        {"t", "t"}, {"th", "θ"}, {"v", "v"},
         {"w", "w"}, {"y", "j"}, {"z", "z"}, {"zh", "ʒ"},
     };
 
     const auto it = arpa_to_ipa.find(normalized);
-    return it == arpa_to_ipa.end() ? std::string() : it->second;
+    if (it == arpa_to_ipa.end()) {
+        return {};
+    }
+
+    std::string mapped = it->second;
+    if (stress == 1) {
+        mapped = "ˈ" + mapped;
+    } else if (stress == 2) {
+        mapped = "ˌ" + mapped;
+    }
+    return mapped;
 }
 
 std::string DictionaryPhonesToKokoroPhonemes(const std::vector<std::string>& phones) {
     std::string output;
-    bool first = true;
     for (const std::string& phone : phones) {
         const std::string mapped = ArpaPhoneToKokoroPhoneme(phone);
         if (mapped.empty()) {
             continue;
         }
-        if (!first) {
-            output.push_back(' ');
-        }
         output += mapped;
-        first = false;
     }
     return output;
 }
@@ -403,7 +649,8 @@ std::string PhonemizeEnglishText(const std::string& text,
     const auto& lexicon = EnglishLexicon();
 
     std::string result;
-    for (const std::string& part : parts) {
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const std::string& part = parts[i];
         if (part.empty()) {
             continue;
         }
@@ -417,6 +664,39 @@ std::string PhonemizeEnglishText(const std::string& text,
 
         if (IsPunctuationToken(part)) {
             result += MapPunctuationPhone(part);
+            continue;
+        }
+
+        const auto expanded_parts = ExpandTokenVariants(part);
+        if (expanded_parts.size() > 1 || (expanded_parts.size() == 1 && expanded_parts.front() != part)) {
+            for (const std::string& expanded : expanded_parts) {
+                std::string expanded_phonemes = PhonemizeEnglishText(expanded, g2p_lexicon, cmudict);
+                if (!expanded_phonemes.empty()) {
+                    if (!result.empty() && result.back() != ' ') {
+                        result.push_back(' ');
+                    }
+                    result += expanded_phonemes;
+                    result.push_back(' ');
+                }
+            }
+            continue;
+        }
+
+        const std::string lower = ToLowerAscii(part);
+
+        const std::string* next_word = nullptr;
+        for (std::size_t next = i + 1; next < parts.size(); ++next) {
+            if (parts[next].empty() || parts[next] == " " || IsPunctuationToken(parts[next])) {
+                continue;
+            }
+            next_word = &parts[next];
+            break;
+        }
+
+        const auto builtin = lexicon.find(lower);
+        if (builtin != lexicon.end()) {
+            result += builtin->second;
+            result.push_back(' ');
             continue;
         }
 
@@ -442,13 +722,14 @@ std::string PhonemizeEnglishText(const std::string& text,
             }
         }
 
-        const std::string lower = ToLowerAscii(part);
-        const auto it = lexicon.find(lower);
-        if (it != lexicon.end()) {
-            result += it->second;
-        } else {
-            result += FallbackWordToPhonemes(part);
+        const std::string weak_form = WeakFormForToken(lower, next_word);
+        if (!weak_form.empty()) {
+            result += weak_form;
+            result.push_back(' ');
+            continue;
         }
+
+        result += FallbackWordToPhonemes(part);
         result.push_back(' ');
     }
 
@@ -750,7 +1031,15 @@ public:
             }
             if (!matched) {
                 std::ostringstream stream;
-                stream << "tokenizer vocab does not contain codepoint in phoneme input: " << codepoint;
+                stream << "tokenizer vocab does not contain codepoint in phoneme input: " << codepoint << " [bytes=";
+                for (std::size_t i = 0; i < codepoint.size(); ++i) {
+                    if (i > 0) {
+                        stream << ' ';
+                    }
+                    stream << std::hex << std::uppercase
+                           << static_cast<int>(static_cast<unsigned char>(codepoint[i]));
+                }
+                stream << std::dec << "]";
                 throw std::runtime_error(stream.str());
             }
         }
