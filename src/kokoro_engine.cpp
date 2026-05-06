@@ -582,6 +582,28 @@ std::string CollapseSpacesAroundPunctuation(const std::string& phonemes) {
     return Trim(output);
 }
 
+std::vector<std::string> SplitPhonemeClauses(const std::string& phonemes) {
+    std::vector<std::string> clauses;
+    std::string current;
+
+    auto flush = [&clauses, &current]() {
+        const std::string trimmed = Trim(current);
+        if (!trimmed.empty()) {
+            clauses.push_back(trimmed);
+        }
+        current.clear();
+    };
+
+    for (char ch : phonemes) {
+        current.push_back(ch);
+        if (ch == '.' || ch == '!' || ch == '?' || ch == ',' || ch == ';' || ch == ':') {
+            flush();
+        }
+    }
+    flush();
+    return clauses;
+}
+
 std::string FallbackWordToPhonemes(const std::string& word) {
     std::string lower = ToLowerAscii(word);
 
@@ -1383,10 +1405,7 @@ public:
         return std::vector<float>(voice_data.begin() + static_cast<std::ptrdiff_t>(offset), voice_data.begin() + static_cast<std::ptrdiff_t>(offset + kStyleDim));
     }
 
-    AudioBuffer Run(const std::string& text, const SynthesisOptions& options) {
-        EnsureLoaded(options);
-
-        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict);
+    AudioBuffer RunPhonemes(const std::string& phonemes, const SynthesisOptions& options) {
         std::vector<std::int64_t> input_ids = TokenizePhonemes(phonemes);
         std::vector<float> style = SelectStyle(input_ids);
         float speed = ClampSpeed(options.speed);
@@ -1419,6 +1438,48 @@ public:
         AudioBuffer audio;
         audio.sample_rate = kSampleRate;
         audio.samples.assign(raw_samples, raw_samples + sample_count);
+        return audio;
+    }
+
+    AudioBuffer Run(const std::string& text, const SynthesisOptions& options) {
+        EnsureLoaded(options);
+
+        const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict);
+        AudioBuffer audio;
+        audio.sample_rate = kSampleRate;
+
+        const auto clauses = SplitPhonemeClauses(phonemes);
+        std::string current_chunk;
+
+        auto append_chunk = [this, &audio, &options](const std::string& chunk) {
+            if (chunk.empty()) {
+                return;
+            }
+            AudioBuffer part = RunPhonemes(chunk, options);
+            audio.samples.insert(audio.samples.end(), part.samples.begin(), part.samples.end());
+        };
+
+        for (const std::string& clause : clauses) {
+            std::string candidate = current_chunk.empty() ? clause : current_chunk + " " + clause;
+            try {
+                (void)TokenizePhonemes(candidate);
+                current_chunk = std::move(candidate);
+                continue;
+            } catch (const std::runtime_error& ex) {
+                if (std::string(ex.what()) != "phoneme input exceeds Kokoro context length") {
+                    throw;
+                }
+            }
+
+            if (current_chunk.empty()) {
+                throw std::runtime_error("single clause exceeds Kokoro context length");
+            }
+
+            append_chunk(current_chunk);
+            current_chunk = clause;
+        }
+
+        append_chunk(current_chunk);
         return audio;
     }
 
