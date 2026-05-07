@@ -185,6 +185,12 @@ Use a simple happy delivery preset:
 .\build\bin\Release\kokoro_cli.exe --text "I'm so happy to see you today!" --emotion happy --emotion-strength 0.8 --output outputs\happy.wav
 ```
 
+Enable light, randomized breathing between stronger sentence boundaries:
+
+```powershell
+.\build\bin\Release\kokoro_cli.exe --text "Welcome everyone. It's wonderful to be here today." --breaths --breath-strength 0.35 --output outputs\breaths.wav
+```
+
 The examples above assume your current working directory is the `Kokoro.C` repository root.
 If you launch the executable from a different working directory, prefer absolute paths for `--model`, `--tokenizer`, `--voice-path`, and `--output`.
 
@@ -296,6 +302,8 @@ Current C++ library target name: `kokoro_core`
 - Default bundled voice is `assets/voices/af_bella.bin`
 - Supported emotion presets are `neutral` and `happy`
 - `emotion_strength` ranges from `0.0` to `1.0`
+- Use `--breaths` to enable randomized breath insertion
+- `breath_strength` ranges from `0.0` to `1.0`
 - Default technical lexicon is `lexicons/programming_terms.lexicon` when present
 - Optional CMUdict cache is `lexicons/cmudict_cache_upper.txt` when present
 - `model_q4.onnx` may still be present in `assets/onnx/`, but it is not the default runtime model

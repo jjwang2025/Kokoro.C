@@ -9,10 +9,12 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <stdexcept>
+#include <cmath>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -892,6 +894,58 @@ float NormalizeAmplitude(float value) {
     return value;
 }
 
+float ClampUnitFloat(float value) {
+    if (value < 0.0f) {
+        return 0.0f;
+    }
+    if (value > 1.0f) {
+        return 1.0f;
+    }
+    return value;
+}
+
+bool IsStrongClauseEnding(const std::string& phonemes) {
+    const std::string trimmed = Trim(phonemes);
+    if (trimmed.empty()) {
+        return false;
+    }
+    const char last = trimmed.back();
+    return last == '.' || last == '!' || last == '?';
+}
+
+char StrongClauseTerminal(const std::string& phonemes) {
+    const std::string trimmed = Trim(phonemes);
+    return trimmed.empty() ? '\0' : trimmed.back();
+}
+
+std::vector<float> GenerateBreathNoise(int sample_rate, float strength, std::mt19937& rng) {
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    std::normal_distribution<float> white(0.0f, 1.0f);
+
+    const float clamped_strength = ClampUnitFloat(strength);
+    const int profile = static_cast<int>(unit(rng) * 3.0f);
+    const float duration_seconds = (profile == 0 ? 0.08f : (profile == 1 ? 0.14f : 0.20f)) + 0.05f * unit(rng);
+    const std::size_t sample_count = static_cast<std::size_t>(duration_seconds * static_cast<float>(sample_rate));
+    const std::size_t lead_silence = static_cast<std::size_t>((0.015f + 0.020f * unit(rng)) * static_cast<float>(sample_rate));
+    const std::size_t tail_silence = static_cast<std::size_t>((0.010f + 0.015f * unit(rng)) * static_cast<float>(sample_rate));
+    const float amplitude = (profile == 0 ? 0.004f : (profile == 1 ? 0.0065f : 0.008f)) + 0.012f * clamped_strength;
+
+    std::vector<float> breath(lead_silence + sample_count + tail_silence, 0.0f);
+    float filtered = 0.0f;
+    for (std::size_t i = 0; i < sample_count; ++i) {
+        const float cutoff_mix = profile == 0 ? 0.04f : (profile == 1 ? 0.07f : 0.10f);
+        filtered = (1.0f - cutoff_mix) * filtered + cutoff_mix * white(rng);
+        const float t = sample_count > 1 ? static_cast<float>(i) / static_cast<float>(sample_count - 1) : 0.0f;
+        const float attack = std::min(1.0f, t / (profile == 0 ? 0.22f : 0.16f));
+        const float release = std::min(1.0f, (1.0f - t) / (profile == 2 ? 0.34f : 0.24f));
+        const float inhale_bias = 0.75f + 0.25f * std::sin(3.14159265f * std::min(1.0f, t * 1.25f));
+        const float plateau = profile == 1 ? 0.92f : 1.0f;
+        const float envelope = std::sin(3.14159265f * std::min(attack, release) * 0.5f) * plateau * inhale_bias;
+        breath[lead_silence + i] = filtered * envelope * amplitude;
+    }
+    return breath;
+}
+
 std::wstring ToWide(const std::string& value) {
     return std::wstring(value.begin(), value.end());
 }
@@ -1670,26 +1724,44 @@ public:
         EnsureLoaded(options);
 
         const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict, options.emotion, options.emotion_strength);
-        try {
-            return RunPhonemes(phonemes, options);
-        } catch (const std::runtime_error& ex) {
-            if (std::string(ex.what()) != "phoneme input exceeds Kokoro context length") {
-                throw;
+        if (!options.enable_breaths) {
+            try {
+                return RunPhonemes(phonemes, options);
+            } catch (const std::runtime_error& ex) {
+                if (std::string(ex.what()) != "phoneme input exceeds Kokoro context length") {
+                    throw;
+                }
             }
         }
 
         AudioBuffer audio;
         audio.sample_rate = kSampleRate;
+        std::mt19937 rng(static_cast<std::mt19937::result_type>(std::random_device{}()));
+        std::uniform_real_distribution<float> unit(0.0f, 1.0f);
 
         const auto strong_clauses = SplitPhonemeClauses(phonemes, false);
         std::string current_chunk;
 
-        auto append_chunk = [this, &audio, &options](const std::string& chunk) {
+        std::vector<std::size_t> breath_insert_points;
+
+        auto append_chunk = [this, &audio, &options, &rng, &unit, &breath_insert_points](const std::string& chunk) {
             if (chunk.empty()) {
                 return;
             }
             AudioBuffer part = RunPhonemes(chunk, options);
             audio.samples.insert(audio.samples.end(), part.samples.begin(), part.samples.end());
+
+            if (options.enable_breaths && IsStrongClauseEnding(chunk)) {
+                const float chunk_seconds = static_cast<float>(part.samples.size()) / static_cast<float>(audio.sample_rate);
+                const float length_bonus = std::min(0.22f, std::max(0.0f, (chunk_seconds - 1.6f) * 0.10f));
+                const char terminal = StrongClauseTerminal(chunk);
+                const float punctuation_bonus = terminal == '!' ? 0.08f : (terminal == '?' ? 0.04f : 0.0f);
+                const float emotion_scale = options.emotion == EmotionPreset::Happy ? 0.72f : 1.0f;
+                const float threshold = (0.18f + 0.34f * ClampUnitFloat(options.breath_strength) + length_bonus + punctuation_bonus) * emotion_scale;
+                if (unit(rng) < threshold) {
+                    breath_insert_points.push_back(audio.samples.size());
+                }
+            }
         };
 
         std::function<void(const std::string&)> process_clause = [&](const std::string& clause) {
@@ -1724,6 +1796,34 @@ public:
         }
 
         append_chunk(current_chunk);
+
+        if (options.enable_breaths && breath_insert_points.empty() && strong_clauses.size() >= 2) {
+            std::uniform_int_distribution<std::size_t> pick(0, strong_clauses.size() - 2);
+            std::size_t running_samples = 0;
+            for (std::size_t i = 0; i < strong_clauses.size() - 1; ++i) {
+                try {
+                    AudioBuffer part = RunPhonemes(strong_clauses[i], options);
+                    running_samples += part.samples.size();
+                    if (i == pick(rng)) {
+                        breath_insert_points.push_back(running_samples);
+                        break;
+                    }
+                } catch (...) {
+                    break;
+                }
+            }
+        }
+
+        if (!breath_insert_points.empty()) {
+            std::sort(breath_insert_points.begin(), breath_insert_points.end());
+            std::size_t inserted = 0;
+            for (std::size_t point : breath_insert_points) {
+                std::vector<float> breath = GenerateBreathNoise(audio.sample_rate, options.breath_strength, rng);
+                audio.samples.insert(audio.samples.begin() + static_cast<std::ptrdiff_t>(point + inserted), breath.begin(), breath.end());
+                inserted += breath.size();
+            }
+        }
+
         return audio;
     }
 

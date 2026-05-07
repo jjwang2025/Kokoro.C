@@ -40,7 +40,7 @@ void PrintVoices() {
 }
 
 void PrintUsage() {
-    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--text-file input.txt] [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--emotion neutral|happy] [--emotion-strength 0.0-1.0] [--phonemes] [--list-voices]\n";
+    std::cerr << "Usage: kokoro_cli --text \"Hello world\" [--text-file input.txt] [--output out.wav] [--voice af_bella] [--voice-path path.bin] [--model model.onnx] [--tokenizer tokenizer.json] [--cmudict path.txt] [--g2p-lexicon path.lexicon] [--speed 1.0] [--emotion neutral|happy] [--emotion-strength 0.0-1.0] [--breaths] [--breath-strength 0.0-1.0] [--phonemes] [--list-voices]\n";
 }
 
 }  // namespace
@@ -57,7 +57,9 @@ int main(int argc, char** argv) {
     std::string g2p_lexicon_path;
     float speed = 1.0f;
     float emotion_strength = 0.5f;
+    float breath_strength = 0.35f;
     kokoro::EmotionPreset emotion = kokoro::EmotionPreset::Neutral;
+    bool enable_breaths = false;
     bool input_is_phonemes = false;
     bool list_voices = false;
 
@@ -87,6 +89,10 @@ int main(int argc, char** argv) {
             emotion = ParseEmotion(argv[++i]);
         } else if (arg == "--emotion-strength" && i + 1 < argc) {
             emotion_strength = std::stof(argv[++i]);
+        } else if (arg == "--breaths") {
+            enable_breaths = true;
+        } else if (arg == "--breath-strength" && i + 1 < argc) {
+            breath_strength = std::stof(argv[++i]);
         } else if (arg == "--phonemes") {
             input_is_phonemes = true;
         } else if (arg == "--list-voices") {
@@ -122,6 +128,8 @@ int main(int argc, char** argv) {
     options.speed = speed;
     options.emotion = emotion;
     options.emotion_strength = emotion_strength;
+    options.enable_breaths = enable_breaths;
+    options.breath_strength = breath_strength;
     options.sample_rate = 24000;
     options.model_path = model_path;
     options.tokenizer_path = tokenizer_path;
