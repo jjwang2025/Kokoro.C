@@ -27,6 +27,7 @@ const std::unordered_map<std::string, std::string>& EnglishLexicon() {
     static const std::unordered_map<std::string, std::string> lexicon = {
         {"a", "ɐ"},
         {"am", "ɐm"},
+        {"among", "ɐmˈʌŋ"},
         {"and", "ænd"},
         {"are", "ɑɹ"},
         {"artificial", "ˌɑɹtɪfˈɪʃəl"},
@@ -615,6 +616,26 @@ std::string WeakFormForToken(const std::string& lower, const std::string* next_w
     return {};
 }
 
+bool IsSentenceBoundaryToken(const std::string& token) {
+    return token == "." || token == "!" || token == "?";
+}
+
+std::string SentenceInitialPronunciationOverride(const std::string& lower) {
+    static const std::unordered_map<std::string, std::string> overrides = {
+        {"among", "ˈæmˌʌŋ"},
+        {"about", "æbˈaʊt"},
+        {"around", "æɹˈaʊnd"},
+        {"again", "æɡˈɛn"},
+        {"away", "æwˈeɪ"},
+        {"alive", "ælˈaɪv"},
+        {"along", "ælˈɔŋ"},
+        {"above", "æbˈʌv"},
+    };
+
+    const auto it = overrides.find(lower);
+    return it == overrides.end() ? std::string() : it->second;
+}
+
 std::vector<std::string> SplitWordsKeepingPunctuation(const std::string& text) {
     std::vector<std::string> parts;
     std::string current;
@@ -650,7 +671,7 @@ std::string CollapseSpacesAroundPunctuation(const std::string& phonemes) {
     return Trim(output);
 }
 
-std::vector<std::string> SplitPhonemeClauses(const std::string& phonemes) {
+std::vector<std::string> SplitPhonemeClauses(const std::string& phonemes, bool include_weak_boundaries) {
     std::vector<std::string> clauses;
     std::string current;
 
@@ -664,7 +685,9 @@ std::vector<std::string> SplitPhonemeClauses(const std::string& phonemes) {
 
     for (char ch : phonemes) {
         current.push_back(ch);
-        if (ch == '.' || ch == '!' || ch == '?' || ch == ',' || ch == ';' || ch == ':') {
+        const bool strong_boundary = ch == '.' || ch == '!' || ch == '?';
+        const bool weak_boundary = ch == ',' || ch == ';' || ch == ':';
+        if (strong_boundary || (include_weak_boundaries && weak_boundary)) {
             flush();
         }
     }
@@ -674,6 +697,33 @@ std::vector<std::string> SplitPhonemeClauses(const std::string& phonemes) {
 
 std::string FallbackWordToPhonemes(const std::string& word) {
     std::string lower = ToLowerAscii(word);
+
+    auto spell_tail = [&](const std::string& tail) {
+        static const std::unordered_map<char, std::string> letter_map = {
+            {'a', "æ"}, {'b', "b"}, {'c', "k"}, {'d', "d"}, {'e', "ɛ"}, {'f', "f"}, {'g', "ɡ"},
+            {'h', "h"}, {'i', "ɪ"}, {'j', "dʒ"}, {'k', "k"}, {'l', "l"}, {'m', "m"}, {'n', "n"},
+            {'o', "oʊ"}, {'p', "p"}, {'q', "k"}, {'r', "ɹ"}, {'s', "s"}, {'t', "t"}, {'u', "u"},
+            {'v', "v"}, {'w', "w"}, {'x', "ks"}, {'y', "j"}, {'z', "z"},
+        };
+
+        std::string phonemes;
+        bool first = true;
+        for (char ch : tail) {
+            if (ch == '\'') {
+                continue;
+            }
+            const auto it = letter_map.find(ch);
+            if (it == letter_map.end()) {
+                continue;
+            }
+            if (!first) {
+                phonemes.push_back(' ');
+            }
+            phonemes += it->second;
+            first = false;
+        }
+        return phonemes;
+    };
 
     if (lower.size() == 1 && std::isalpha(static_cast<unsigned char>(lower.front())) != 0) {
         static const std::unordered_map<char, std::string> letter_names = {
@@ -705,30 +755,73 @@ std::string FallbackWordToPhonemes(const std::string& word) {
         return "dˈɑːktɚ";
     }
 
-    static const std::unordered_map<char, std::string> letter_map = {
-        {'a', "æ"}, {'b', "b"}, {'c', "k"}, {'d', "d"}, {'e', "ɛ"}, {'f', "f"}, {'g', "ɡ"},
-        {'h', "h"}, {'i', "ɪ"}, {'j', "dʒ"}, {'k', "k"}, {'l', "l"}, {'m', "m"}, {'n', "n"},
-        {'o', "oʊ"}, {'p', "p"}, {'q', "k"}, {'r', "ɹ"}, {'s', "s"}, {'t', "t"}, {'u', "u"},
-        {'v', "v"}, {'w', "w"}, {'x', "ks"}, {'y', "j"}, {'z', "z"},
+    static const std::vector<std::pair<std::string, std::string>> weak_prefixes = {
+        {"among", "ɐm"},
+        {"about", "ɐ"},
+        {"above", "ɐ"},
+        {"around", "ɐ"},
+        {"along", "ɐ"},
+        {"alive", "ɐ"},
+        {"away", "ɐ"},
+        {"again", "ɐ"},
+        {"ahead", "ɐ"},
+        {"aside", "ɐ"},
+        {"before", "b ɪ"},
+        {"began", "b ɪ"},
+        {"begin", "b ɪ"},
+        {"behind", "b ɪ"},
+        {"below", "b ɪ"},
+        {"beyond", "b ɪ"},
+        {"become", "b ɪ"},
+        {"because", "b ɪ"},
+        {"between", "b ɪ"},
+        {"beforehand", "b ɪ"},
+        {"return", "ɹ ɪ"},
+        {"report", "ɹ ɪ"},
+        {"reply", "ɹ ɪ"},
+        {"delay", "d ɪ"},
+        {"debate", "d ɪ"},
+        {"depend", "d ɪ"},
+        {"develop", "d ɪ"},
+        {"define", "d ɪ"},
+        {"connect", "k ə n"},
+        {"control", "k ə n"},
+        {"contain", "k ə n"},
+        {"continue", "k ə n"},
+        {"collect", "k ə"},
+        {"correct", "k ə"},
+        {"provide", "p ɹ ə"},
+        {"promote", "p ɹ ə"},
+        {"protect", "p ɹ ə"},
+        {"proceed", "p ɹ ə"},
     };
 
-    std::string phonemes;
-    bool first = true;
-    for (char ch : lower) {
-        if (ch == '\'') {
-            continue;
+    for (const auto& entry : weak_prefixes) {
+        const std::string& pattern = entry.first;
+        const std::string& prefix_phonemes = entry.second;
+        if (lower.size() > pattern.size() && lower.rfind(pattern, 0) == 0) {
+            const std::string tail = spell_tail(lower.substr(pattern.size()));
+            if (!tail.empty()) {
+                return prefix_phonemes + " " + tail;
+            }
         }
-        const auto it = letter_map.find(ch);
-        if (it == letter_map.end()) {
-            continue;
-        }
-        if (!first) {
-            phonemes.push_back(' ');
-        }
-        phonemes += it->second;
-        first = false;
     }
-    return phonemes;
+
+    if (lower.size() >= 3 && lower[0] == 'a') {
+        const std::string tail = spell_tail(lower.substr(1));
+        if (!tail.empty()) {
+            return "ɐ " + tail;
+        }
+    }
+
+    if (lower.size() >= 3 && lower[0] == 'b' && lower[1] == 'e') {
+        const std::string tail = spell_tail(lower.substr(2));
+        if (!tail.empty()) {
+            return "b ɪ " + tail;
+        }
+    }
+
+    return spell_tail(lower);
 }
 
 std::string PossessiveSuffixForPhonemes(const std::string& phonemes) {
@@ -1095,6 +1188,22 @@ std::string PhonemizeEnglishText(const std::string& text,
         }
 
         const std::string lower = ToLowerAscii(part);
+        bool sentence_initial = true;
+        for (std::size_t prev = i; prev > 0; --prev) {
+            const std::string& previous = parts[prev - 1];
+            if (previous.empty() || previous == " ") {
+                continue;
+            }
+            sentence_initial = IsSentenceBoundaryToken(previous);
+            break;
+        }
+
+        const std::string sentence_initial_override = sentence_initial ? SentenceInitialPronunciationOverride(lower) : std::string();
+        if (!sentence_initial_override.empty()) {
+            result += sentence_initial_override;
+            result.push_back(' ');
+            continue;
+        }
 
         if (lower.size() > 2 && lower.substr(lower.size() - 2) == "'s") {
             const std::string stem = part.substr(0, part.size() - 2);
@@ -1561,10 +1670,18 @@ public:
         EnsureLoaded(options);
 
         const std::string phonemes = options.input_is_phonemes ? text : PhonemizeEnglishText(text, &g2p_lexicon, &cmudict, options.emotion, options.emotion_strength);
+        try {
+            return RunPhonemes(phonemes, options);
+        } catch (const std::runtime_error& ex) {
+            if (std::string(ex.what()) != "phoneme input exceeds Kokoro context length") {
+                throw;
+            }
+        }
+
         AudioBuffer audio;
         audio.sample_rate = kSampleRate;
 
-        const auto clauses = SplitPhonemeClauses(phonemes);
+        const auto strong_clauses = SplitPhonemeClauses(phonemes, false);
         std::string current_chunk;
 
         auto append_chunk = [this, &audio, &options](const std::string& chunk) {
@@ -1575,12 +1692,12 @@ public:
             audio.samples.insert(audio.samples.end(), part.samples.begin(), part.samples.end());
         };
 
-        for (const std::string& clause : clauses) {
+        std::function<void(const std::string&)> process_clause = [&](const std::string& clause) {
             std::string candidate = current_chunk.empty() ? clause : current_chunk + " " + clause;
             try {
                 (void)TokenizePhonemes(candidate);
                 current_chunk = std::move(candidate);
-                continue;
+                return;
             } catch (const std::runtime_error& ex) {
                 if (std::string(ex.what()) != "phoneme input exceeds Kokoro context length") {
                     throw;
@@ -1588,11 +1705,22 @@ public:
             }
 
             if (current_chunk.empty()) {
-                throw std::runtime_error("single clause exceeds Kokoro context length");
+                const auto weak_clauses = SplitPhonemeClauses(clause, true);
+                if (weak_clauses.size() <= 1) {
+                    throw std::runtime_error("single clause exceeds Kokoro context length");
+                }
+                for (const std::string& weak_clause : weak_clauses) {
+                    process_clause(weak_clause);
+                }
+                return;
             }
 
             append_chunk(current_chunk);
             current_chunk = clause;
+        };
+
+        for (const std::string& clause : strong_clauses) {
+            process_clause(clause);
         }
 
         append_chunk(current_chunk);
