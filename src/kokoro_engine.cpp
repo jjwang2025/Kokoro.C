@@ -867,11 +867,24 @@ float ClampEmotionStrength(float strength) {
     return strength;
 }
 
+char StrongClauseTerminal(const std::string& phonemes);
+
 float ApplyEmotionSpeed(float speed, EmotionPreset emotion, float emotion_strength) {
     if (emotion == EmotionPreset::Happy) {
         return ClampSpeed(speed * (1.0f + 0.12f * ClampEmotionStrength(emotion_strength)));
     }
     return ClampSpeed(speed);
+}
+
+bool IsQuestionPhonemes(const std::string& phonemes) {
+    return StrongClauseTerminal(phonemes) == '?';
+}
+
+float ApplyQuestionSpeed(float speed, bool is_question) {
+    if (!is_question) {
+        return speed;
+    }
+    return ClampSpeed(speed * 0.92f);
 }
 
 std::string ApplyEmotionPunctuation(const std::string& token, EmotionPreset emotion, float emotion_strength) {
@@ -1668,12 +1681,17 @@ public:
 
     std::vector<float> SelectStyle(const std::vector<std::int64_t>& input_ids,
                                    EmotionPreset emotion,
-                                   float emotion_strength) const {
+                                   float emotion_strength,
+                                   bool is_question) const {
         const std::size_t phoneme_count = input_ids.size() >= 2 ? (input_ids.size() - 2) : 0;
         std::size_t style_index = std::min<std::size_t>(phoneme_count, 509);
         if (emotion == EmotionPreset::Happy) {
             const std::size_t offset = static_cast<std::size_t>(std::round(4.0f * ClampEmotionStrength(emotion_strength)));
             style_index = std::min<std::size_t>(style_index + offset, 509);
+        }
+        if (is_question) {
+            const std::size_t question_offset = phoneme_count > 32 ? 8 : 6;
+            style_index = std::min<std::size_t>(style_index + question_offset, 509);
         }
         const std::size_t offset = style_index * kStyleDim;
 
@@ -1685,9 +1703,10 @@ public:
     }
 
     AudioBuffer RunPhonemes(const std::string& phonemes, const SynthesisOptions& options) {
+        const bool is_question = IsQuestionPhonemes(phonemes);
         std::vector<std::int64_t> input_ids = TokenizePhonemes(phonemes);
-        std::vector<float> style = SelectStyle(input_ids, options.emotion, options.emotion_strength);
-        float speed = ApplyEmotionSpeed(options.speed, options.emotion, options.emotion_strength);
+        std::vector<float> style = SelectStyle(input_ids, options.emotion, options.emotion_strength, is_question);
+        float speed = ApplyQuestionSpeed(ApplyEmotionSpeed(options.speed, options.emotion, options.emotion_strength), is_question);
 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
